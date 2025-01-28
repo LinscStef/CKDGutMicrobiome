@@ -15,7 +15,7 @@ The demo data set of figure 3a is provided as demo_fig.3a.xlsx
 Expected output: Figure 3a
 Expected run time: ~1s
 
-4. Instructions for use
+#4. Instructions for use
 Step 1. Install R
 Step 2. Downdoad source data and codes
 Step 3. Run the condes 

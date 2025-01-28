@@ -6,9 +6,11 @@ All source data are provided in the manuscript. A demo data set of figure 3a can
 
 #1. System requirements
 R can be installed on Windows or Linux system.
+Version of the software has been tested on Windows 10 system.
 
 #2. Installation guide
 The installation guide can be found in R (https://www.r-project.org/)
+Typical install time: ~10 min
 
 #3. Demo
 The demo data set of figure 3a is provided as demo_fig.3a.xlsx
@@ -18,6 +20,6 @@ Expected run time: ~1s
 #4. Instructions for use
 Step 1. Install R
 Step 2. Downdoad source data and codes
-Step 3. Run the condes 
+Step 3. Run the codes 
 
 

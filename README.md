@@ -16,8 +16,8 @@ Expected output: Figure 3a
 Expected run time: ~1s
 
 4. Instructions for use
-1. Install R
-2. Downdoad source data and codes
-3. Run the condes 
+Step 1. Install R
+Step 2. Downdoad source data and codes
+Step 3. Run the condes 
 
 

@@ -3,7 +3,7 @@
 # set data -------------------------------------------------------------
 ##out
 outPath <- "./v3/"
-for (i in c("baseChar","BacAbun/Maaslin2","diet","SV","Path")) {if (!dir.exists(file.path(outPath,i))) {dir.create(file.path(outPath,i),recursive = T)}}
+for (i in c("baseChar","BacAbun/Maaslin2","diet","Path")) {if (!dir.exists(file.path(outPath,i))) {dir.create(file.path(outPath,i),recursive = T)}}
 ##pkg
 pkg <- c("dplyr","ggplot2","taxize","pheatmap","RColorBrewer","ggbiplot","vegan","plyr","parallel","doParallel")
 for (i in pkg) library(i,character.only = T)
@@ -31,8 +31,7 @@ Species_abun_RG <- openxlsx::read.xlsx("./Species_abun_RG.xlsx")
 metacyc_abun_RG <- openxlsx::read.xlsx("./metacyc_abun_RG.xlsx")
 ec_abun_RG <- openxlsx::read.xlsx("./ec_abun_RG.xlsx")
 asnA_RG <- openxlsx::read.xlsx("./asnA_RG.xlsx")
-RG_SV <- openxlsx::read.xlsx("./RG_SV.xlsx")
-SV_tax <- openxlsx::read.xlsx("./SV_tax.xlsx")
+
 
 # P.copri detected
 P.copri.clades.RG <- colnames(Species_abun_RG) %>% str_subset(.,"copri.+[A-Z]+")
@@ -103,6 +102,49 @@ ComplexHeatmap::Heatmap(as.matrix(all_p),
 )
 my.dev.off()
 
+# RG eGFR related species in HS & Wang et.al -------------------------------------------------------------
+## sig RG in HS
+x1 <- rownames(sig.kidney.bac.RG.rank)[!is.na(sig.kidney.bac.RG.rank$eGFR)]
+x2 <- x1[x1 %in% colnames(Species_abun_HS)]
+eGFR.species.rep <- x2[x2 %in% rownames(sig.kidney.bac.HS)] #<<<---
+all(sig.kidney.bac.RG.rank[eGFR.species.rep,"Class"]==sig.kidney.bac.HS[eGFR.species.rep,"Class"])
+message(sprintf("Among the %s eGFR-related species identified in RLAS, %s were detected, and %s species maintained consistent associations with either eGFR or kidney dysfunction (i.e., CKD or ESRD) in HS.",length(x1),length(x2),length(eGFR.species.rep)))
+## rep RG-HS in ESRD
+all(eGFR.species.rep %in% colnames(Species_PRJNA449784))
+x3 <- eGFR.species.rep[eGFR.species.rep %in% rownames(sig.kidney.bac.ESRD)]
+all(sig.kidney.bac.RG.rank[x3,"Class"]==sig.kidney.bac.ESRD[x3,"Class"])
+message(sprintf("out of the %s species with validated association in the HS cohort, %s species further demonstrated consistent associations with ESRD.",length(eGFR.species.rep),length(x3)))
+## Figure 2d
+all_b <- abun_test_HS %>% subset(.,X %in% eGFR.species.rep) %>% mutate(.,sig=sig.kidney.bac.HS[X,"Class"]) %>% transform(.,sig=ifelse(P < p_cut,as.character(.$sig),"non.sig"),Study="HS")
+all_b <- abun_test_ESRD %>% subset(.,X %in% eGFR.species.rep) %>% mutate(.,sig=sig.kidney.bac.ESRD[X,"Class"]) %>% transform(.,sig=ifelse(P < p_cut,as.character(.$sig),"non.sig"),Study="ESRD") %>% rbind(all_b,.)
+all_b <- all_b %>% mutate(.,b=coef,se=stderr) %>% TwoSampleMR::generate_odds_ratios() %>% transform(.,bac=factor(X,levels=rownames(sig.kidney.bac.RG.rank)[rownames(sig.kidney.bac.RG.rank) %in% X])) %>% mutate(.,kidneyFucntion=paste0(value,Study)) %>% transform(.,kidneyFucntion=factor(kidneyFucntion,levels=c(paste0(c("eGFR","CKD","ESRD"),"HS"),paste0(c("ESRD"),"ESRD")),labels=c("eGFR","CKD","ESRD","ESRD (Wang et.al)")))
+all_b <- transform(all_b,Bac=factor(bac,levels = rev(levels(bac)),labels = str_replace_all(rev(levels(bac)),"_"," ")))
+all_b <- all_b %>% transform(.,Sig=ifelse(Y==eGFR,ifelse(P < .1,ifelse(beta > 0,"Protect","Damage"),"non.sig"),ifelse(P < .1,ifelse(beta < 0,"Protect","Damage"),"non.sig")))
+## plot
+p1 <- ggplot(data = all_b,aes(x=b,y=Bac,fill=sig,color=Sig,xmin=lo_ci,xmax=up_ci)) + geom_errorbar(aes(color=sig),size=0.4,width=0,show.legend = F) + geom_point(size=.6,alpha=1,show.legend = F,stroke=.4,shape=21) + facet_wrap(~ kidneyFucntion, scales = "free_x",nrow = 1) + xlab("Maaslin Coefficient") +  scale_fill_manual(values = setNames(c("red","blue","gray"),c("Damage","Protect","non.sig"))) +scale_color_manual(values = setNames(c("red","blue","gray"),c("Damage","Protect","non.sig"))) + GT + GTs + theme(strip.text = element_text(size=8, color = 'black'),strip.background = element_blank()) + ylab("") + theme(plot.margin=unit(c(2.5,.5,2.5,.5),"cm")) + geom_vline(xintercept = 0,linetype=2,color="black",size=.1) + ylab("") + theme(axis.text.y = element_text(face="italic",size=8)) + theme(axis.text.x = element_text(size=5),axis.title.x = element_text(size=9))
+p1 <- p1 + geom_blank(data = data.frame(kidneyFucntion=factor(rep(levels(all_b$kidneyFucntion),each=2),levels = levels(all_b$kidneyFucntion)),y=0,x=c(c(-0.05,0.1),rep(c(-.4,.1),3))),aes(x=x,y=y),inherit.aes = F)
+ggsave(plot = p1,filename = sprintf("%s/BacAbun/Figure 2d.eGFR.related.species.pdf",outPath),width = 7.5,height = 5);my.dev.off()
+
+# P.copri & other species -------------------------------------------------------------
+## distri Figure 2e & Figure S
+for (targetBac in c("Prevotella_copri", "Phocaeicola_vulgatus")) {
+  x0 <- Species_abun_RG %>% .[,targetBac,drop=F] %>% mutate(.,Group=pd_RG_bac[,"eGFR_Grade"],Study=pd_RG_bac[,"Study"])
+  x1 <- Species_abun_HS %>% .[,targetBac,drop=F] %>% mutate(.,Group=pd_HS_bac[,"Kidney_disease"],Study=pd_HS_bac[,"Study"])
+  x2 <- Species_PRJNA449784 %>% .[,targetBac,drop=F] %>% mutate(.,Group=pd_PRJNA449784[,"Kidney_disease"],Study=pd_PRJNA449784[,"Study"])
+  tmp <- plyr::ddply(rbind(x0,x1,x2),.(Study,Group),summarize,mean(get(targetBac),na.rm = T),sd(get(targetBac),na.rm = T),length(get(targetBac))) %>% setNames(.,c("Study","Group","abundance","SD","n")) %>% transform(.,Group=factor(Group),Study=factor(Study,levels=c("RLAS","HS","ESRD"),labels=c("RLAS","HS","Wang et.al")),se=SD/sqrt(n)) %>% transform(Up=abundance+se,Down=abundance-se)
+  p1 <- ggplot(data = tmp,aes(x=Study,y=abundance,fill=Group)) + geom_bar(stat = "identity",position = "dodge",width = .6) + geom_errorbar(size=.3,aes(ymin=Down,ymax=Up),position = position_dodge(width=.6),width=.2) +
+    GTplus2 + scale_fill_manual(values=setNames(c(pool_colRG,pool_colHS),levels(tmp$Group))) + ylab("Mean abundance (%)") + xlab(str_replace_all(targetBac,"_"," ")) + GTs + theme(plot.margin=unit(rep(.5,4),"cm")) + theme(axis.title.x = element_text(face="italic")) + guides(fill=guide_legend(nrow = 1))
+  ggsave(plot = p1,filename = sprintf("%s/BacAbun/Figure %s.%s.pdf",outPath,ifelse(targetBac==targetBacS,"2e","S"),targetBac),width = 4.7,height = 4);my.dev.off()
+  ## p value
+  targetBac_p <- c()
+  targetBac_p <- abun_test_HS %>% subset(.,X==targetBac & Y == "Kidney_disease") %>% mutate(.,Study="HS",name=paste0(value,"vsControl")) %>% rbind(targetBac_p,.)
+  targetBac_p <- Maaslin2::Maaslin2(input_data = Species_abun_HS[,targetBac,drop=F]/100,input_metadata = subset(pd_HS_bac[,c("Kidney_disease",covVarHS)]),output = file.path(outPath,"BacAbun/Maaslin2/tmp"),normalization = "NONE",transform = "AST",fixed_effects = c("Kidney_disease",covVarHS),plot_scatter = F,standardize = T, reference = c("Kidney_disease,CKD"),min_abundance = 0,min_prevalence = 0,max_significance = fdr_cut,cores = 1) %>% .$results %>% subset(.,metadata=="Kidney_disease" & value=="ESRD") %>% mutate(.,Study="HS",name=paste0(value,"vsCKD")) %>% rbind.fill(targetBac_p,.)
+  targetBac_p <- abun_test_ESRD %>% subset(.,X==targetBac & Y == "Kidney_disease") %>% mutate(.,Study="Wang.et.al",name=paste0(value,"vsControl")) %>% rbind(targetBac_p,.)
+  targetBac_p <- Maaslin2::Maaslin2(input_data = Species_abun_RG[,targetBac,drop=F]/100,input_metadata = subset(pd_RG_bac[,c("eGFR_Grade",covVarRG)]),output = file.path(outPath,"BacAbun/Maaslin2/tmp"),normalization = "NONE",transform = "AST",fixed_effects = c("eGFR_Grade",covVarRG),plot_scatter = F,standardize = T, reference = c("eGFR_Grade,>=90"),min_abundance = 0,min_prevalence = 0,max_significance = fdr_cut,cores = 1) %>% .$results %>% subset(.,metadata=="eGFR_Grade") %>% mutate(.,Study="RLAS",name=paste0(value,"vs>=90")) %>% rbind.fill(targetBac_p,.)
+  targetBac_p <- Maaslin2::Maaslin2(input_data = Species_abun_RG[,targetBac,drop=F]/100,input_metadata = subset(pd_RG_bac[,c("eGFR_Grade",covVarRG)]),output = file.path(outPath,"BacAbun/Maaslin2/tmp"),normalization = "NONE",transform = "AST",fixed_effects = c("eGFR_Grade",covVarRG),plot_scatter = F,standardize = T, reference = c("eGFR_Grade,[60,90)"),min_abundance = 0,min_prevalence = 0,max_significance = fdr_cut,cores = 1) %>% .$results %>% subset(.,metadata=="eGFR_Grade" & value=="<60") %>% mutate(.,Study="RLAS",name=paste0(value,"vs[60,90)")) %>% rbind.fill(targetBac_p,.)
+  assign(paste0("targetBac_p_",targetBac),targetBac_p);rm(targetBac_p)
+}
+
 # gut pathways and kdiney function in RG -------------------------------------------------------------
 path_test_RG <- NULL
 for (i in testVarRG) {
@@ -167,58 +209,6 @@ for (i in testVarRG) {
   asnA_test_RG <- tmp$results %>% subset(.,metadata==i) %>% transform(.,FDR = p.adjust(.$pval,method = "BH")) %>% transform(.,X=feature, Y=i, beta=coef, se=stderr, P=pval, sample_size=N) %>% rbind(asnA_test_RG,.)
 }
 
-# ammo Path and EC -------------------------------------------------------------
-ammoPathEC <- list(
-  "PWY-5030: L-histidine degradation III"=c("4.3.1.3","4.2.1.49","3.5.2.7","2.1.2.5","4.3.1.4","3.5.4.9"), 
-  "HISDEG-PWY: L-histidine degradation I"=c("4.3.1.3","4.2.1.49","3.5.2.7","3.5.3.8"), 
-  "PWY0-845: superpathway of pyridoxal 5'-phosphate biosynthesis and salvage"=c("1.4.3.5"),
-  "CITRULBIO-PWY: L-citrulline biosynthesis"=c("3.5.1.2","3.5.1.38"),
-  "PWY-6703: preQ0 biosynthesis"=c("4.3.99.3"),
-  "PWY-7323: superpathway of GDP-mannose-derived O-antigen building blocks biosynthesis"=c("4.2.1.168"),
-  "PWY-5497: purine nucleobases degradation II (anaerobic)"=c("3.5.4.3","3.5.4.8","4.3.1.4","4.3.1.17"),
-  "PWY-5022: 4-aminobutanoate degradation V"=c("1.4.1.2"),
-  "PWY-6906: chitin derivatives degradation"=c("3.5.99.6")
-)
-ammoPathEC <- ammoPathEC[names(ammoPathEC) %in% Path.eGFR.Sig$X]
-ammoPathEC <- sapply(ammoPathEC,function(x){any(x%in%EC.eGFR.Sig$X)}) %>% ammoPathEC[.]
-ammoEC <- unlist(ammoPathEC,use.names = T) %>% unique() %>%  setdiff(.,c("4.2.1.49","3.5.2.7","2.1.2.5","3.5.4.9","3.5.3.8")) %>% .[.%in%EC.eGFR.Sig$X]
-ammoPathEC <- lapply(ammoPathEC, function(x){x[x%in%c(ammoEC,c("4.2.1.49","3.5.2.7","2.1.2.5","3.5.4.9","3.5.3.8"))]})
-ammoEC <- c(ammoEC,"6.3.1.1") ##target EC path #ammoPathEC ammoEC
-ammoPath <- names(ammoPathEC)
-## re-names
-ammoPathName <- ammoPath %>% sub(".+\\:\\s+",x = .,"") %>% sub("\\s+\\(.+\\)$",x = .,"") %>% sub("-phosphate",x = .,"\r\nphosphate") %>% setNames(.,ammoPath)
-ammoECName <- ammoEC %>% paste0("EC ",.) %>% setNames(.,ammoEC) %>% c(.,asnA="asnA")
-
-## ammo Path and EC and eGFR -------------------------------------------------------------
-## format
-stopifnot(all(Reduce(intersect,list(rownames(Species_abun_RG),rownames(metacyc_abun_RG),rownames(ec_abun_RG),rownames(asnA_RG)))==rownames(pd_RG_bac)))
-eGFR.features.abun.RG <- cbind(Species_abun_RG[,eGFR.species],metacyc_abun_RG[,ammoPath],ec_abun_RG[,ammoEC],asnA_RG)
-eGFR.features.ast.RG <- cbind(RG_Species_ast[,eGFR.species],RG_Path_ast[,ammoPath],RG_EC_ast[,ammoEC],RG_asnA_ast)
-## Figure 3a : eGFR ~ ammo path
-targetMeta <- pd_RG_bac %>% transform(.,ID=rownames(.))  %>% .[,c("ID","eGFR")] %>% cbind(.,eGFR.features.ast.RG)
-xx <- "PWY0-845: superpathway of pyridoxal 5'-phosphate biosynthesis and salvage" %>%  c(setdiff(ammoPath,.),.) %>% .[. %in% ammoPath]
-tmp <- targetMeta %>% gather(.,"Var","Value",-c(eGFR,"ID"))  %>% subset(.,Var %in% c(xx)) %>% transform(.,Path=factor(Var,levels=xx,labels=gsub("(.+\\:\\s*)|(\\(.+\\))","",xx)))
-p1 <- ggplot(data = tmp,aes(x=eGFR,y=Value,group=Path,color=Path,fill=Path)) + geom_smooth(method = MASS::rlm,se=T,alpha=.1) + xlab("eGFR, ml/min/1.73 m2") + ylab("AST transformed abundance of\r\npathways related to ammonia production") + GTplus2 + scale_color_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + scale_fill_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + guides(color=guide_legend(nrow = 4,byrow = T),fill=guide_legend(nrow = 4,byrow = T)) + theme(plot.margin=unit(rep(.5,4),"cm"),legend.position = "top") + GTs
-ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3a.%s and %s.pdf",outPath,"ammo.path",eGFR), width = 5.5, height = 5.3);my.dev.off()
-## Figure 3d  : p.c ~ ammo path
-tmp <- targetMeta %>% gather(.,"Var","Value",-c(targetBacS,"ID"))  %>% subset(.,Var %in% c(xx)) %>% transform(.,Path=factor(Var,levels=xx,labels=gsub("(.+\\:\\s*)|(\\(.+\\))","",xx)))
-p1 <- ggplot(data = tmp,aes(x=get(targetBacS),y=Value,group=Path,color=Path,fill=Path)) + geom_smooth(method = MASS::rlm,se=T,alpha=.1) + xlab(paste("AST transformed abundance of",str_replace(targetBacS,"_"," "))) + ylab("AST transformed abundance of\r\npathways related to ammonia production") + GTplus2 + scale_color_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + scale_fill_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + guides(color=guide_legend(nrow = 4,byrow = T),fill=guide_legend(nrow = 4,byrow = T)) + theme(plot.margin=unit(rep(.5,4),"cm"),legend.position = "top") + GTs
-ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3d.%s and %s.pdf",outPath,"ammo.path",str_replace_all(string = targetBacS,pattern = "(\\:)|(\\/)",replacement = " ")), width = 5.5, height = 5.3);my.dev.off()
-## Figure 3b : p.c ~ ammo ec
-for (i in unique(unlist(ammoPathEC,use.names = F))) {
-  tmp <- EC.eGFR %>% subset(.,X == i);if(nrow(tmp)!=1) return(next)
-  xx <- data.frame(X=pd_RG_bac[,eGFR],Y=RG_EC_ast[,tmp$X])
-  p1 <- ggplot(data = xx, aes(x=X,y=Y)) + geom_smooth(method = MASS::rlm,se = T,alpha=.1,color=pool_col0[2],fill=pool_col0[2]) + GTplus3 + xlab("eGFR, ml/min/1.73 m2") + GTplus2 + ylab(paste("EC",i)) + geom_text(data = data.frame(X=quantile(xx$X,0.95,na.rm = T),Y=quantile(xx$Y,0.7,na.rm = T),L=sub("= <","<",sprintf("P = %s",ifelse(tmp$P < 0.001,"< 0.001",ifelse(tmp$P < 0.01,round(tmp$P,3),round(tmp$P,2)))))),inherit.aes = F,aes(x=X,y=Y,label=L,size=10),show.legend = F) + GTs + theme(plot.margin=unit(rep(0.5,4),"cm"))
-  ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3b.eGFR and EC.%s.pdf",outPath,str_replace_all(string = i,pattern = "(\\:)|(\\/)",replacement = " ")), width = 3.6, height = 3.3)
-}
-## Figure 3f : p.c ~ asnA
-xx <- with(eGFR.features.ast.RG,cor.test(get(targetBacS),asnA,method=cor_m))
-p1 <- ggplot(eGFR.features.ast.RG,aes(x=get(targetBacS),y=asnA)) + geom_point(alpha = .7,size =1.3,color="black",stroke=.01,shape=21,fill="#B6C59E") + geom_smooth(method = "lm",se = T) + GTplus3 + ggtitle(sprintf("Spearman's r = %s",round(xx$estimate,2))) + xlab(paste("AST transformed abundance of",str_replace(targetBacS,"_"," "))) + ylab(paste0("AST transformed abundance of asnA")) +  GTs + theme(plot.margin=unit(rep(.5,4),"cm")) + guides(color=guide_legend(title = element_blank()))  + scale_y_continuous(breaks = seq(0,0.012,by=0.003),labels = seq(0,0.012,by=0.003),limits = c(0,0.012)) + theme(axis.title = element_text(size = 15,color="black"),axis.text = element_text(size=15,color="black"))
-ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3f.%s and %s.pdf",outPath,"asnA",str_replace_all(string = targetBacS,pattern = "(\\:)|(\\/)",replacement = " ")), width = 5.5, height = 5.1);my.dev.off()
-## Figure 3g : p.c ~ asnA
-p1 <- ggplot(targetMeta,aes(x=eGFR,y=asnA)) + geom_point(alpha = .7,size =1.3,color="black",stroke=.01,shape=21,fill="#B6C59E") + geom_smooth(method = "lm",se = T) + GTplus3 + ggtitle(sprintf("P = %s",round(asnA_test_RG[asnA_test_RG$Y==eGFR,"P"],3))) + xlab("eGFR, ml/min/1.73 m2") + ylab(paste0("AST transformed abundance of asnA")) +  GTs + theme(plot.margin=unit(rep(.5,4),"cm")) + guides(color=guide_legend(title = element_blank())) + scale_y_continuous(breaks = seq(0,0.012,by=0.003),labels = seq(0,0.012,by=0.003),limits = c(0,0.012)) + theme(axis.title = element_text(size = 15,color="black"),axis.text = element_text(size=15,color="black"))
-ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3g.%s and %s.pdf",outPath,"asnA",eGFR), width = 5.5, height = 5.1);my.dev.off()
-
 # enterotypes in RG -------------------------------------------------------------
 testData <- Species_abun_RG[,setdiff(colnames(Species_abun_RG),P.copri.clades.RG)]
 data <- t(testData) #test data
@@ -231,6 +221,10 @@ for (k in 1:5) {
     nclusters[k]=clusterSim::index.G1(t(data),data.cluster_temp,  d = data.dist,centrotypes = "medoids")}}
 pdf(sprintf("%s/BacAbun/enterotypes.cluster.pdf",outPath), width = 4.5, height = 4.6);plot(nclusters, type="h", xlab="k clusters", ylab="CH index");my.dev.off()
 rm(list = c("data","data.dist"))
+## Pick the optimal DMM model
+fit <- lapply(1:5, DirichletMultinomial::dmn, count=as.matrix(testData), verbose=T)
+bic  <- base::sapply(fit, DirichletMultinomial::BIC) # BIC
+pdf(sprintf("%s/BacAbun/enterotypes.cluster.BIC.pdf",outPath), width = 4.5, height = 4.6);plot(bic, type="b", xlab="Number of Dirichlet Components", ylab="Model Fit, BIC");my.dev.off()
 ## cluster DMN base
 nclusters <- 2
 best <- DirichletMultinomial::dmn(k = nclusters,count=as.matrix(testData),verbose=T)
@@ -238,22 +232,6 @@ RG_enterotype <- DirichletMultinomial::mixture(best, assign=T) %>% as.data.frame
 ## format
 RG_enterotype$ET <- RG_enterotype$ET %>% str_replace(.,"1","3") %>% str_replace(.,"2","1")  %>% str_replace(.,"3","2")
 pd_RG_bac$enterotype <- RG_enterotype$ET[match(rownames(pd_RG_bac),rownames(RG_enterotype))] %>% factor()
-## enterotypes contri
-RG_enterotype_contri <- ddply(data.frame(enterotype=RG_enterotype$ET,testData,check.rows = F,check.names = F),"enterotype",function(x){colMeans(x[,-1,drop=F])}) %>% data.frame(.,row.names = "enterotype",check.rows = F,check.names = F) %>% t %>% as.data.frame(.,check.rows = F,check.names = F)
-## enterotypes - species test
-tmp <- Maaslin2::Maaslin2(input_data=testData/100,
-                          input_metadata=pd_RG_bac,
-                          output=file.path(outPath,"BacAbun/Maaslin2",paste0("enterotype","_species")),
-                          normalization = "NONE",
-                          transform = "AST",
-                          fixed_effects = c("enterotype","Hypertension","Sex","Diabetes","BMI","Cancer","Medication_use","HDL","Age","LDL"),
-                          min_abundance = 0,
-                          min_prevalence = 0,
-                          standardize = T,
-                          max_significance = fdr_cut,
-                          plot_scatter = F,
-                          cores = 14);my.dev.off()
-ET_bac_test <-  tmp$results %>% subset(.,metadata=="enterotype") %>% transform(.,FDR = p.adjust(.$pval,method = "BH")) %>% transform(.,X=feature, Y="enterotype", beta=coef, se=stderr, P=pval, sample_size=N)
 
 # PERMANOVA & kidney function -------------------------------------------------------------
 ## distance - species
@@ -308,7 +286,7 @@ for (idx in c("enterotype","Impaired_Kidney_Function")) {
   xx <- vegan::adonis2(testDataDist ~ .,data = pd_RG_bac[,idx,drop=F], parallel = 14)
   p1 <- ggplot(data = pd,aes(PCo1,PCo2, color = get(idx))) + geom_point(size = 1,alpha = 0.8) + ggtitle(sprintf("P = %s",round(as.data.frame(xx)[1,5],3))) + xlab(paste("PCo1 = ",round((testData$eig[1]/sum(testData$eig))*100,digits = 2),"%",sep = "")) + ylab(paste("PCo2 = ",round((testData$eig[2]/sum(testData$eig))*100,digits = 2),"%",sep = "")) + GTplus3 + GTs + theme(plot.margin=unit(rep(.3,4),"cm")) +
     stat_ellipse(aes(group = pd[,idx], fill = pd[,idx], color = pd[,idx]) ,type = "norm",linetype = 2,geom = "polygon",alpha = 0.05,show.legend = F) + scale_color_manual(name=str_replace_all(idx,"_"," "), values = if(idx=="enterotype"){setNames(pool_colET,levels(pd[,idx]))}else{setNames(pool_colBR,levels(pd[,idx]))})
-  ggsave(plot = p1,filename = sprintf("%s/BacAbun/Figure %s.PCoA.species.%s.pdf",outPath,ifelse(idx=="Impaired_Kidney_Function","2a","2e"),idx),width = 4.3,height = 4.4) 
+  ggsave(plot = p1,filename = sprintf("%s/BacAbun/Figure %s.PCoA.species.%s.pdf",outPath,ifelse(idx=="Impaired_Kidney_Function","2a",""),idx),width = 4.3,height = 4.4) 
 }
 
 ## pathway - Impaired_Kidney_Function
@@ -379,57 +357,6 @@ for (i in colnames(alpha_pathway_RG)) {
   }
 }
 
-# SV & kidney function -------------------------------------------------------------
-## SV - species distance matrix -------------------------------------------------------------
-all_msv_dist <-NULL
-for (i in c(1:nrow(SV_tax))){
-  cat(i,"\r")
-  tmp <- RG_SV[,getSVname(SV_tax$taxid[i],colnames(RG_SV))]
-  stopifnot(all(unique(sub(x=colnames(tmp),pattern = "(\\d+)\\..*","\\1"))==SV_tax$taxid[i]))
-  tmp <- apply(tmp, 2, function(x){length(unique(na.omit(x)))>1}) %>% tmp[,.]
-  tmp <- as.matrix(vegdist(as.data.frame(tmp),method = "canberra",na.rm = T))
-  tmp <- dist_rmna(tmp)
-  all_msv_dist[[SV_tax$taxid[i]]] <- tmp
-}
-
-## SV - species ~ kidney function -------------------------------------------------------------
-SV_bac_test <- NULL
-for (i in 1:nrow(SV_tax)) {
-  cat("\r",i)
-  tmp <- SV_tax$spec_abun_name[i]
-  if(!is.na(tmp)){testcoVar<- data.frame(pd_RG_bac,Species_abun_RG[,tmp,drop=F])}else{testcoVar<- data.frame(pd_RG_bac)}
-  for (j in testVarRG) {
-    tmp <- my_adonis_terms(inDist = all_msv_dist[SV_tax$taxid[i]],inDf = pd_RG_bac[,j,drop=F],covDf = testcoVar)
-    SV_bac_test <- rbind(SV_bac_test,tmp)
-  }
-}
-SV_bac_test$bac_name <- SV_tax$spec_abun_SV_name[match(SV_bac_test$OutBacSV,SV_tax$taxid)]
-for (i in testVarRG) SV_bac_test$FDR[SV_bac_test$testVar==i] <- p.adjust(SV_bac_test$P[SV_bac_test$testVar==i],method = "BH")
-
-## PCoA SV -------------------------------------------------------------
-RG_SV_dist <- as.matrix(vegdist(as.data.frame(RG_SV),method = "canberra",na.rm = T)) %>% dist_rmna()
-PCoA_SV <- cmdscale(RG_SV_dist, k=2, eig = T)
-PCoA_SV.point <- data.frame(PCoA_SV$points) %>% setNames(.,paste0("SV_PCo",1:2))
-pd_RG_bac <- PCoA_SV.point[match(rownames(pd_RG_bac),rownames(PCoA_SV.point)),] %>% cbind(pd_RG_bac,.)
-
-## PCoA SV & P.copri & kidney function -------------------------------------------------------------
-testDataDist <- SV_tax$taxid[SV_tax$spec_abun_SV_name==targetBacS] %>% all_msv_dist[[.]]
-testData <- cmdscale(testDataDist, k=2, eig = T)
-for (idx in c("Impaired_Kidney_Function",eGFR)) {
-  pd <- pd_RG_bac %>% .[rownames(testDataDist),idx,drop=F] %>% cbind(setNames(as.data.frame(testData$points[rownames(.),]),c("PCo1","PCo2")),.)
-  if (idx=="Impaired_Kidney_Function") {pd[,idx] <- factor(pd[,idx],labels = c("No","Yes"))}
-  # xx <- vegan::adonis2(testDataDist ~ .,data = pd[,idx,drop=F], parallel = 14) %>%  as.data.frame(xx)[1,5]
-  xx <- SV_bac_test[(SV_bac_test$OutBacSV == SV_tax$taxid[SV_tax$spec_abun_SV_name==targetBacS]) & SV_bac_test$testVar==idx,"P"]
-  if (is.factor(pd[,idx])) {
-    p1 <- ggplot(data = pd,aes(PCo1,PCo2, color = get(idx))) + geom_point(size = 1,alpha = 0.8) + ggtitle(sprintf("P = %s",round(xx,3))) + xlab(paste("PCo1 = ",round((testData$eig[1]/sum(testData$eig))*100,digits = 2),"%",sep = "")) + ylab(paste("PCo2 = ",round((testData$eig[2]/sum(testData$eig))*100,digits = 2),"%",sep = "")) + GTplus3 + GTs + theme(plot.margin=unit(rep(.3,4),"cm")) +
-      stat_ellipse(aes(group = pd[,idx], fill = pd[,idx], color = pd[,idx]) ,type = "norm",linetype = 2,geom = "polygon",alpha = 0.05,show.legend = F) + scale_color_manual(name=str_replace_all(idx,"_"," "), values = setNames(pool_colBR,levels(pd[,idx])))
-  }else{
-    p1 <- ggplot(data = pd,aes(PCo1,PCo2, color = get(idx))) + geom_point(size = 1,alpha = 0.8) + ggtitle(sprintf("P = %s",round(xx,3))) + xlab(paste("PCo1 = ",round((testData$eig[1]/sum(testData$eig))*100,digits = 2),"%",sep = "")) + ylab(paste("PCo2 = ",round((testData$eig[2]/sum(testData$eig))*100,digits = 2),"%",sep = "")) + GTplus3 + GTs + theme(plot.margin=unit(rep(.3,4),"cm")) +
-      scale_color_gradientn(name=str_replace_all(idx,"_"," "), colours = (colorRampPalette(c("dodgerblue","blue", "red","indianred1"))(nrow(pd))))
-  }
-  ggsave(plot = p1,filename = sprintf("%s/SV/Figure S.PCoA.SV.%s.%s.pdf",outPath,targetBacS,idx),width = 4.3,height = 4.4) 
-}
-
 # R2 & kidney function -------------------------------------------------------------
 lifeStyleFactor <- c("smoking","drinking","light_PA")
 pd <- pd_RG_bac
@@ -463,6 +390,112 @@ for (i in levels(kidney_R2$Y)) {
   ggsave(plot = p1,filename = sprintf("%s/baseChar/Figure S.R2 for %s.pdf",outPath,i),width = 5.5,height = 4.5)
 }
 
+# ammo Path and EC -------------------------------------------------------------
+ammoPathEC <- list(
+  "PWY-5030: L-histidine degradation III"=c("4.3.1.3","4.2.1.49","3.5.2.7","2.1.2.5","4.3.1.4","3.5.4.9"), 
+  "HISDEG-PWY: L-histidine degradation I"=c("4.3.1.3","4.2.1.49","3.5.2.7","3.5.3.8"), 
+  "PWY0-845: superpathway of pyridoxal 5'-phosphate biosynthesis and salvage"=c("1.4.3.5"),
+  "CITRULBIO-PWY: L-citrulline biosynthesis"=c("3.5.1.2","3.5.1.38"),
+  "PWY-6703: preQ0 biosynthesis"=c("4.3.99.3"),
+  "PWY-7323: superpathway of GDP-mannose-derived O-antigen building blocks biosynthesis"=c("4.2.1.168"),
+  "PWY-5497: purine nucleobases degradation II (anaerobic)"=c("3.5.4.3","3.5.4.8","4.3.1.4","4.3.1.17"),
+  "PWY-5022: 4-aminobutanoate degradation V"=c("1.4.1.2"),
+  "PWY-6906: chitin derivatives degradation"=c("3.5.99.6")
+)
+ammoPathEC <- ammoPathEC[names(ammoPathEC) %in% Path.eGFR.Sig$X]
+ammoPathEC <- sapply(ammoPathEC,function(x){any(x%in%EC.eGFR.Sig$X)}) %>% ammoPathEC[.]
+ammoEC <- unlist(ammoPathEC,use.names = T) %>% unique() %>%  setdiff(.,c("4.2.1.49","3.5.2.7","2.1.2.5","3.5.4.9","3.5.3.8")) %>% .[.%in%EC.eGFR.Sig$X]
+ammoPathEC <- lapply(ammoPathEC, function(x){x[x%in%c(ammoEC,c("4.2.1.49","3.5.2.7","2.1.2.5","3.5.4.9","3.5.3.8"))]})
+ammoEC <- c(ammoEC,"6.3.1.1") ##target EC path #ammoPathEC ammoEC
+ammoPath <- names(ammoPathEC)
+## re-names
+ammoPathName <- ammoPath %>% sub(".+\\:\\s+",x = .,"") %>% sub("\\s+\\(.+\\)$",x = .,"") %>% sub("-phosphate",x = .,"\r\nphosphate") %>% setNames(.,ammoPath)
+ammoECName <- ammoEC %>% paste0("EC ",.) %>% setNames(.,ammoEC) %>% c(.,asnA="asnA")
+
+## ammo Path and EC and eGFR -------------------------------------------------------------
+## format
+stopifnot(all(Reduce(intersect,list(rownames(Species_abun_RG),rownames(metacyc_abun_RG),rownames(ec_abun_RG),rownames(asnA_RG)))==rownames(pd_RG_bac)))
+eGFR.features.abun.RG <- cbind(Species_abun_RG[,eGFR.species],metacyc_abun_RG[,ammoPath],ec_abun_RG[,ammoEC],asnA_RG)
+eGFR.features.ast.RG <- cbind(RG_Species_ast[,eGFR.species],RG_Path_ast[,ammoPath],RG_EC_ast[,ammoEC],RG_asnA_ast)
+## Figure 3a : eGFR ~ ammo path
+targetMeta <- pd_RG_bac %>% transform(.,ID=rownames(.))  %>% .[,c("ID","eGFR")] %>% cbind(.,eGFR.features.ast.RG)
+xx <- "PWY0-845: superpathway of pyridoxal 5'-phosphate biosynthesis and salvage" %>%  c(setdiff(ammoPath,.),.) %>% .[. %in% ammoPath]
+tmp <- targetMeta %>% gather(.,"Var","Value",-c(eGFR,"ID"))  %>% subset(.,Var %in% c(xx)) %>% transform(.,Path=factor(Var,levels=xx,labels=gsub("(.+\\:\\s*)|(\\(.+\\))","",xx)))
+p1 <- ggplot(data = tmp,aes(x=eGFR,y=Value,group=Path,color=Path,fill=Path)) + geom_smooth(method = MASS::rlm,se=T,alpha=.1) + xlab("eGFR, ml/min/1.73 m2") + ylab("AST transformed abundance of\r\npathways related to ammonia production") + GTplus2 + scale_color_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + scale_fill_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + guides(color=guide_legend(nrow = 4,byrow = T),fill=guide_legend(nrow = 4,byrow = T)) + theme(plot.margin=unit(rep(.5,4),"cm"),legend.position = "top") + GTs
+ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3a.%s and %s.pdf",outPath,"ammo.path",eGFR), width = 5.5, height = 5.3);my.dev.off()
+
+## Figure 3b : p.c ~ ammo ec
+for (i in unique(unlist(ammoPathEC,use.names = F))) {
+  tmp <- EC.eGFR %>% subset(.,X == i);if(nrow(tmp)!=1) return(next)
+  xx <- data.frame(X=pd_RG_bac[,eGFR],Y=RG_EC_ast[,tmp$X])
+  p1 <- ggplot(data = xx, aes(x=X,y=Y)) + geom_smooth(method = MASS::rlm,se = T,alpha=.1,color=pool_col0[2],fill=pool_col0[2]) + GTplus3 + xlab("eGFR, ml/min/1.73 m2") + GTplus2 + ylab(paste("EC",i)) + geom_text(data = data.frame(X=quantile(xx$X,0.95,na.rm = T),Y=quantile(xx$Y,0.7,na.rm = T),L=sub("= <","<",sprintf("P = %s",ifelse(tmp$P < 0.001,"< 0.001",ifelse(tmp$P < 0.01,round(tmp$P,3),round(tmp$P,2)))))),inherit.aes = F,aes(x=X,y=Y,label=L,size=10),show.legend = F) + GTs + theme(plot.margin=unit(rep(0.5,4),"cm"))
+  ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3b.eGFR and EC.%s.pdf",outPath,str_replace_all(string = i,pattern = "(\\:)|(\\/)",replacement = " ")), width = 3.6, height = 3.3)
+}
+
+## ammonia ~ kidney disease
+idx <- "ammonia"
+ammo_p <- data.frame()
+## p-value adjust
+tmp <- combn(levels(pd_HS_bac$Kidney_disease),2)
+for (i in 1:ncol(tmp)) {
+  tmp_p <- pd_HS_bac[pd_HS_bac[,"Kidney_disease"] %in% tmp[,i],] %>% lm(data = .,sprintf("%s ~ %s + %s",idx,"Kidney_disease",paste0(c(covVarHS,"liver_disease_all"),collapse = "+"))) %>% summary() %>% {.$coefficients[2,4]}
+  ammo_p <- data.frame(Y=idx,X=paste0(tmp[,i],collapse = " vs "),P=tmp_p) %>% rbind(ammo_p,.)
+}
+tmp_p <- ordinal::clm(formula = sprintf("Kidney_disease ~ %s + %s",idx,paste0(c(covVarHS,"liver_disease_all"),collapse = "+")), data = pd_HS_bac, link = c("logit")) %>% {as.data.frame(broom::tidy(.))} %>% .[.$term==idx,"p.value"]; message(sprintf("P-trend for %s: %s",idx,format(tmp_p,scientific=T,digits = 3)))
+ammo_p <- data.frame(Y=idx,X="P-trend",P=tmp_p) %>% rbind.fill(ammo_p,.)
+## Figure 3c
+N <- 200
+tmp <- pd_HS_bac %>% subset(., !is.na(get(idx)))
+tmp[which(tmp[,idx] > N),idx] <- N
+p1 <- ggplot(data = tmp,aes(x=Kidney_disease,y=get(idx),fill=Kidney_disease)) + geom_boxplot(outlier.colour = NA,width=.6,show.legend = F) + ylab(paste0("Plasma ",idx, ", umol/L")) + scale_x_discrete(labels=paste0(levels(tmp$Kidney_disease),"\r\nn=",table(tmp$Kidney_disease[!is.na(tmp[,idx])]))) + geom_jitter(width=.3,size=.8,show.legend = F) + scale_y_continuous(breaks = seq(0,N,50),labels = c(seq(0,(N-50),50),paste0(">",N))) + theme(axis.title.x = element_blank()) +  GTplus2 + theme(plot.margin=unit(rep(.1,4),"cm")) + GTs + scale_fill_manual(values = setNames(pool_colHS,levels(tmp$Kidney_disease))) + geom_text(data = data.frame(x=1,y=190,la=sprintf("P-trend = %s",format(subset(ammo_p,Y==idx & X=="P-trend",select = "P")[1,1],scientific=T,digits = 3))),inherit.aes = F, size = 5,aes(x=x,y=y,label=la))
+p1 <- p1 + ggsignif::geom_signif( comparisons = as.list(as.data.frame(combn(levels(tmp$Kidney_disease),2))),map_signif_level = F,step_increase = 0.12,textsize = 5,tip_length=0.015,size=.5,
+                                  annotations = ammo_p %>% subset(.,Y==idx) %>% data.frame(.,row.names = .$X) %>% .[apply(as.data.frame(combn(levels(tmp$Kidney_disease),2)), 2, paste0,collapse = " vs "),"P"] %>% {ifelse(. < 0.001, "P < 0.001", ifelse(. < 0.01, sprintf("P = %s",round(.,3)), ifelse(. < 0.05, sprintf("P = %s",round(.,2)), "ns")))})
+p1 <- p1 + theme(axis.title = element_text(size = 16.5,color="black"),axis.text = element_text(size=14,color="black")) + theme(plot.title = element_text(size = 15))
+ggsave(plot = p1,filename = sprintf("%s/clini/Figure 3c.%s.pdf",outPath,idx),width = 6,height = 4.8);my.dev.off()
+
+## Figure 3d  : p.c ~ ammo path
+tmp <- targetMeta %>% gather(.,"Var","Value",-c(targetBacS,"ID"))  %>% subset(.,Var %in% c(xx)) %>% transform(.,Path=factor(Var,levels=xx,labels=gsub("(.+\\:\\s*)|(\\(.+\\))","",xx)))
+p1 <- ggplot(data = tmp,aes(x=get(targetBacS),y=Value,group=Path,color=Path,fill=Path)) + geom_smooth(method = MASS::rlm,se=T,alpha=.1) + xlab(paste("AST transformed abundance of",str_replace(targetBacS,"_"," "))) + ylab("AST transformed abundance of\r\npathways related to ammonia production") + GTplus2 + scale_color_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + scale_fill_manual(values = setNames(pool_col2[1:length(levels(tmp$Path))],levels(tmp$Path))) + guides(color=guide_legend(nrow = 4,byrow = T),fill=guide_legend(nrow = 4,byrow = T)) + theme(plot.margin=unit(rep(.5,4),"cm"),legend.position = "top") + GTs + theme(axis.title = element_text(size = 16.5,color="black"),axis.text = element_text(size=14,color="black")) + theme(plot.title = element_text(size = 15)) + theme(legend.text = element_text(size=14))
+ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3d.%s and %s.pdf",outPath,"ammo.path",str_replace_all(string = targetBacS,pattern = "(\\:)|(\\/)",replacement = " ")), width = 7, height = 6);my.dev.off()
+
+## Figure 3e
+xx <- tmp$r[targetBac,"6.3.1.1",drop=F] %>% as.data.frame() %>% {cbind(.,tmp$P[rownames(.),"6.3.1.1",drop=F])} %>% setNames(.,c("r","P")) %>% .[order(abs(.$r),decreasing = F),]
+xx <- transform(xx,Species=factor(rownames(xx),levels = rownames(xx)),Sig=ifelse(P < 0.001, "***", ifelse(P < 0.01, "**", ifelse(P < 0.05, "*", "")))) %>% transform(sig=ifelse(P < p_cut,"red","black")) %>% transform(.,Species=factor(Species,labels = gsub("_"," ",levels(Species))))
+p1 <- ggplot(data = xx,aes(x=r,y=Species)) + geom_bar(stat = "identity",width = .6,fill=xx$sig) + GTplus2 + GTs + geom_vline(xintercept = 0, linetype=2,size=.3) + scale_x_continuous(limits = c(-.3,.6),breaks = round(seq(-.2,.6,by=0.2),1)) + ylab("") + xlab("Spearman’s correlation coefficient\r\nwith abundance of EC 6.3.1.1") + theme(axis.text.y = element_text(face="italic",size=15)) + theme(axis.title = element_text(size = 15,color="black")) + theme(plot.margin=unit(c(.1,.5,.1,.1),"cm"))
+ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3e.cor.sig.rep.bac.6.3.1.1.pdf",outPath), width = 7.2, height = 5.1)
+
+## Figure 3f : p.c ~ asnA
+xx <- with(eGFR.features.ast.RG,cor.test(get(targetBacS),asnA,method=cor_m))
+p1 <- ggplot(eGFR.features.ast.RG,aes(x=get(targetBacS),y=asnA)) + geom_point(alpha = .7,size =1.3,color="black",stroke=.01,shape=21,fill="#B6C59E") + geom_smooth(method = "lm",se = T) + GTplus3 + ggtitle(sprintf("Spearman's r = %s",round(xx$estimate,2))) + xlab(paste("AST transformed abundance of",str_replace(targetBacS,"_"," "))) + ylab(paste0("AST transformed abundance of asnA")) +  GTs + theme(plot.margin=unit(rep(.5,4),"cm")) + guides(color=guide_legend(title = element_blank()))  + scale_y_continuous(breaks = seq(0,0.012,by=0.003),labels = seq(0,0.012,by=0.003),limits = c(0,0.012)) + theme(axis.title = element_text(size = 15,color="black"),axis.text = element_text(size=15,color="black"))
+ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3f.%s and %s.pdf",outPath,"asnA",str_replace_all(string = targetBacS,pattern = "(\\:)|(\\/)",replacement = " ")), width = 5.5, height = 5.1);my.dev.off()
+## Figure 3g : p.c ~ asnA
+p1 <- ggplot(targetMeta,aes(x=eGFR,y=asnA)) + geom_point(alpha = .7,size =1.3,color="black",stroke=.01,shape=21,fill="#B6C59E") + geom_smooth(method = "lm",se = T) + GTplus3 + ggtitle(sprintf("P = %s",round(asnA_test_RG[asnA_test_RG$Y==eGFR,"P"],3))) + xlab("eGFR, ml/min/1.73 m2") + ylab(paste0("AST transformed abundance of asnA")) +  GTs + theme(plot.margin=unit(rep(.5,4),"cm")) + guides(color=guide_legend(title = element_blank())) + scale_y_continuous(breaks = seq(0,0.012,by=0.003),labels = seq(0,0.012,by=0.003),limits = c(0,0.012)) + theme(axis.title = element_text(size = 15,color="black"),axis.text = element_text(size=15,color="black"))
+ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3g.%s and %s.pdf",outPath,"asnA",eGFR), width = 5.5, height = 5.1);my.dev.off()
+
+# RG ammonia related features in HS & Wang et.al -------------------------------------------------------------
+## Figure 3h
+all_b <- rbind.fill(path_test_RG,ec_test_RG,asnA_test_RG) %>% subset(.,Y %in% c("Impaired_Kidney_Function","eGFR")) %>% transform(.,Study="RLAS",Class=ifelse(Y==eGFR,ifelse(FDR < fdr_cut,ifelse(beta > 0,"Protect","Damage"),"non.sig"),ifelse(FDR < fdr_cut,ifelse(beta < 0,"Protect","Damage"),"non.sig")))
+all_b <- rbind.fill(path_test_HS,ec_test_HS,asnA_test_HS) %>% subset(.,Y %in% c("Kidney_disease","eGFR")) %>% transform(.,Study="HS",Class=ifelse(Y==eGFR,ifelse(P < p_cut,ifelse(beta > 0,"Protect","Damage"),"non.sig"),ifelse(P < p_cut,ifelse(beta < 0,"Protect","Damage"),"non.sig"))) %>% rbind.fill(all_b,.)
+all_b <- rbind.fill(path_test_ESRD,ec_test_ESRD,asnA_test_ESRD) %>% subset(.,Y %in% c("Kidney_disease","eGFR")) %>% transform(.,Study="ESRD",Class=ifelse(Y==eGFR,ifelse(P < p_cut,ifelse(beta > 0,"Protect","Damage"),"non.sig"),ifelse(P < p_cut,ifelse(beta < 0,"Protect","Damage"),"non.sig"))) %>% rbind.fill(all_b,.)
+all_b <- all_b %>% mutate(.,b=coef,se=stderr) %>% TwoSampleMR::generate_odds_ratios() %>% subset(.,X %in% c(ammoPath,ammoEC,"asnA")) %>% transform(.,Bac=factor(X,levels=rev(c(names(ammoPathName),names(ammoECName))),labels=rev(c(ammoPathName,ammoECName))))
+all_b <- all_b %>% mutate(.,kidneyFucntion=paste0(value,Study)) %>% transform(.,kidneyFucntion=factor(kidneyFucntion,levels=c(paste0(c("eGFR","1"),"RLAS"),paste0(c("eGFR","CKD","ESRD"),"HS"),paste0(c("ESRD"),"ESRD")),labels=c(paste0("RLAS\r\n",c("eGFR","Impaired_Kidney_Function")),paste0("HS\r\n",c("eGFR","CKD","ESRD")),"\r\nESRD (Wang et.al)")))
+all_b <- all_b %>% transform(.,Sig=ifelse(Y==eGFR,ifelse(P < .1,ifelse(beta > 0,"Protect","Damage"),"non.sig"),ifelse(P < .1,ifelse(beta < 0,"Protect","Damage"),"non.sig")))
+## Figure 3h only those replicated
+eGFR.ammo.features.rep <- c("6.3.1.1","asnA")
+for (i in unique(all_b$X)) {
+  tmp <- subset(all_b,X==i & Class!="non.sig" & Study != "RLAS")
+  if (nrow(tmp) == 0 ) {next}
+  for (j in unique(tmp$metadata)) {
+    x1 <- subset(tmp,metadata==j,select = "Class",drop = T) %>% unique()
+    if(length(x1)!=1){next}
+    if(subset(all_b,X==i & metadata==eGFR & Study == "RLAS",select = Class,drop = T)==x1){eGFR.ammo.features.rep <- append(eGFR.ammo.features.rep,i) %>% unique()}
+  }
+}
+## plot
+tmp <- subset(all_b,X %in% eGFR.ammo.features.rep)
+p1 <- ggplot(data = tmp,aes(x=b,y=Bac,color=Sig,fill=Class,xmin=lo_ci,xmax=up_ci)) + geom_errorbar(aes(color=Class),size=0.4,width=0,show.legend = F) + geom_point(size=.6,alpha=1,show.legend = F,stroke=.4,shape=21) + facet_wrap(~ kidneyFucntion, scales = "free_x",nrow = 1) + xlab("Maaslin Coefficient") + scale_color_manual(values = setNames(c("red","blue","gray"),c("Damage","Protect","non.sig"))) + scale_fill_manual(values = setNames(c("red","blue","gray"),c("Damage","Protect","non.sig"))) + GT + theme(strip.text = element_text(size=5, color = 'black'),strip.background = element_blank()) + ylab("") + geom_vline(xintercept = 0,linetype=2,color="black",size=.1) + ylab("") + theme(axis.title = element_text(size = 8,color="black"),axis.text.y = element_text(size=7,color=rev(c(rep("#D26865",sum(ammoPath %in% tmp$X)),rep("#7570B3",(sum(ammoEC %in% tmp$X)-1)),rep("#1B9E77",2)))),axis.text.x = element_text(size=4,color="black"))
+p1 <- p1 + geom_blank(data = data.frame(kidneyFucntion=factor(rep(levels(tmp$kidneyFucntion),each=2),levels = levels(tmp$kidneyFucntion)),y=0,x=c(c(-0.005,0.004),c(-.01,.02),c(-0.005,0.004),rep(c(-.01,.02),3))),aes(x=x,y=y),inherit.aes = F) + theme(plot.margin=unit(c(2,1,2,.5),"cm"))
+ggsave(plot = p1,filename = sprintf("%s/Path/Figure 3h.ammo.features.rep.pdf",outPath),width = 8.5,height = 4.5);my.dev.off()
 
 
 ###############################end###############################

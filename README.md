@@ -13,7 +13,7 @@ The installation guide can be found in R (https://www.r-project.org/)
 Typical install time: ~10 min
 
 #3. Demo
-The demo data set of figure 3a is provided as demo_fig.2c.xlsx
+The demo data set of figure 2c is provided as demo_fig.2c.xlsx
 Expected output: Figure 2c
 Expected run time: ~1s
 

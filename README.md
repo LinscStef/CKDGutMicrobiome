@@ -14,7 +14,7 @@ Typical install time: ~10 min
 
 #3. Demo
 The demo data set of figure 3a is provided as demo_fig.3a.xlsx
-Expected output: Figure 3a
+Expected output: Figure 3c
 Expected run time: ~1s
 
 #4. Instructions for use

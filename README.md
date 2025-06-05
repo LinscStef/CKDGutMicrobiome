@@ -1,5 +1,5 @@
 # CKDGutMicrobiome
-Gut microbial ammonia metabolism contributes to the pathogenesis of chronic kidney disease
+Segatella copri and gut microbial ammonia metabolism contribute to chronic kidney disease pathogenesis
 
 All the data analyses and related code were conducted in R (version 4.2.2). 
 All source data are provided in the manuscript. A demo data set of figure 2c can be found in the folder.
